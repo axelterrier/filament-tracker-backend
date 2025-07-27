@@ -1,5 +1,7 @@
 from flask import Blueprint, request, jsonify
 from models import db, Filament
+from datetime import datetime
+import json
 
 api = Blueprint('api', __name__)
 
@@ -129,3 +131,67 @@ def update_filament(id):
 
     db.session.commit()
     return jsonify(filament.to_dict())
+
+# Import one or multiple JSON
+@api.route('/api/filaments/import', methods=['POST'])
+def import_filaments():
+    if 'files' not in request.files:
+        return jsonify({"error": "No files part in request"}), 400
+
+    files = request.files.getlist('files')
+    imported = 0
+    skipped = 0
+    errors = []
+
+    for file in files:
+        if not file.filename.endswith('.json'):
+            skipped += 1
+            continue
+
+        try:
+            raw = file.read().decode('utf-8')  # ✅ Fix lecture
+            content = json.loads(raw)
+
+            uid = content.get('tag_uid')
+            if not uid:
+                skipped += 1
+                continue
+
+            existing = Filament.query.filter_by(uid=uid).first()
+            if existing:
+                skipped += 1
+                continue
+
+            filament = Filament(
+                uid=uid,
+                tray_uid=uid,
+                tag_manufacturer=content.get('material_code'),
+                filament_type=content.get('type'),
+                filament_detailed_type=content.get('subtype'),
+                color_code=content.get('color_hex'),
+                filament_diameter=content.get('diameter_mm'),
+                spool_weight=content.get('spool_weight_g'),
+                filament_length=content.get('length_m'),
+                nozzle_diameter=int(round(content.get('nozzle_diameter_mm', 0) * 1000)),
+                print_temp_min=content.get('temp_hotend_min'),
+                print_temp_max=content.get('temp_hotend_max'),
+                dry_temp=content.get('temp_drying'),
+                dry_time_minutes=content.get('drying_time_h', 0) * 60,
+                manufacture_datetime_utc=datetime.strptime(content.get('produced_at'), "%Y-%m-%d-%H-%M"),
+                short_date=content.get('produced_at').replace('-', '')[:8],
+            )
+
+            db.session.add(filament)
+            imported += 1
+
+        except Exception as e:
+            skipped += 1
+            errors.append({"file": file.filename, "error": str(e)})
+
+    db.session.commit()
+
+    return jsonify({
+        "imported": imported,
+        "skipped": skipped,
+        "errors": errors
+    }), 200
