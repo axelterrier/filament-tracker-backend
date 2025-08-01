@@ -1,6 +1,9 @@
 from flask import Blueprint, request, jsonify
 from models import db, Filament
 from datetime import datetime
+import tempfile
+import os
+import zipfile
 import json
 
 api = Blueprint('api', __name__)
@@ -195,3 +198,26 @@ def import_filaments():
         "skipped": skipped,
         "errors": errors
     }), 200
+
+
+@api.route('/api/3mf/analyze', methods=['POST'])
+def analyze_3mf():
+    file = request.files['file']
+    with tempfile.TemporaryDirectory() as tmpdir:
+        file_path = os.path.join(tmpdir, "model.3mf")
+        file.save(file_path)
+        with zipfile.ZipFile(file_path, 'r') as archive:
+            archive.extractall(tmpdir)
+        config_path = os.path.join(tmpdir, "metadata", "project_settings.config")
+        with open(config_path, 'r', encoding='utf-8') as f:
+            settings = json.load(f)
+        colors = settings.get("filament_colour", [])
+        materials_raw = settings.get("filament_settings_id", [])
+
+        # Nettoyage inline des matériaux
+        materials = [
+            m.split('@')[0].replace("Bambu ", "").strip()
+            for m in materials_raw
+        ]
+
+    return jsonify({"colors": colors, "materials": materials})
