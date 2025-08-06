@@ -5,6 +5,7 @@ import tempfile
 import os
 import zipfile
 import json
+import xml.etree.ElementTree as ET
 
 api = Blueprint('api', __name__)
 
@@ -202,22 +203,46 @@ def import_filaments():
 
 @api.route('/api/3mf/analyze', methods=['POST'])
 def analyze_3mf():
-    file = request.files['file']
+    # Récupère le fichier 3MF envoyé
+    file = request.files.get('file')
+    if not file:
+        return jsonify({'error': 'No file provided'}), 400
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        file_path = os.path.join(tmpdir, "model.3mf")
+        # Sauvegarde et extraction de l'archive 3MF
+        file_path = os.path.join(tmpdir, 'model.3mf')
         file.save(file_path)
         with zipfile.ZipFile(file_path, 'r') as archive:
             archive.extractall(tmpdir)
-        config_path = os.path.join(tmpdir, "metadata", "project_settings.config")
-        with open(config_path, 'r', encoding='utf-8') as f:
+
+        # Dossier contenant les métadonnées
+        meta = os.path.join(tmpdir, 'metadata')
+
+        # 1) Couleurs et matériaux depuis project_settings.config
+        proj_cfg = os.path.join(meta, 'project_settings.config')
+        with open(proj_cfg, 'r', encoding='utf-8') as f:
             settings = json.load(f)
-        colors = settings.get("filament_colour", [])
-        materials_raw = settings.get("filament_settings_id", [])
+        colors_raw = settings.get('filament_colour', [])
+        mats_raw = settings.get('filament_settings_id', [])
 
-        # Nettoyage inline des matériaux
-        materials = [
-            m.split('@')[0].replace("Bambu ", "").strip()
-            for m in materials_raw
-        ]
+        colors = colors_raw
+        materials = [m.split('@')[0].replace('Bambu ', '').strip() for m in mats_raw]
 
-    return jsonify({"colors": colors, "materials": materials})
+        # 2) Comptage des pièces via le premier fichier XML/HTML contenant <objects>
+        pieces_count = 0
+        for fname in os.listdir(meta):
+            if fname.lower().endswith(('.xml', '.html')):
+                path = os.path.join(meta, fname)
+                with open(path, 'r', encoding='utf-8') as f:
+                    content = f.read().lstrip()
+                if content.startswith('<objects') or '<objects' in content:
+                    tree = ET.parse(path)
+                    pieces_count = len(tree.getroot().findall('.//object'))
+                    break
+
+    # Réponse JSON simplifiée
+    return jsonify({
+        'colors': colors,
+        'materials': materials,
+        'pieces_count': pieces_count,
+    })
