@@ -38,6 +38,12 @@ class Filament(db.Model):
 
     tag_manufacturer = db.Column(db.String)
 
+        # ——— NOUVEAUX CHAMPS utiles pour la synchro AMS ———
+    remaining_percent = db.Column(db.Integer)   # JSON: remain
+    remaining_grams = db.Column(db.Integer)     # calculé: spool_weight * remain / 100
+    remaining_length_mm = db.Column(db.Integer) # calculé: total_len * remain / 100
+    last_sync_source = db.Column(db.String)     # "ams"
+    last_sync_at = db.Column(db.DateTime)
 
     def to_dict(self):
         return {

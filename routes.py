@@ -1,6 +1,8 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from models import db, Filament
 from datetime import datetime
+from sqlalchemy import func, cast, Float
+from helper import tray_to_filament_dict, upsert_filament, validate_cfg, save_config
 import tempfile
 import os
 import zipfile
@@ -9,10 +11,73 @@ import xml.etree.ElementTree as ET
 
 api = Blueprint('api', __name__)
 
+# ------------------- MQTT endpoints -------------------
+
+@api.post("/api/mqtt/test")
+def api_mqtt_test():
+    payload = request.get_json(force=True) or {}
+    err = validate_cfg(payload)
+    if err:
+        return jsonify({"error": err}), 400
+    res = current_app.mqtt_manager.quick_test(payload)
+    return (jsonify(res), 200) if res.get("ok") else (jsonify(res), 400)
+
+@api.post("/api/mqtt/config")
+def api_mqtt_config():
+    payload = request.get_json(force=True) or {}
+    err = validate_cfg(payload)
+    if err:
+        return jsonify({"error": err}), 400
+
+    save_config(payload)
+    try:
+        current_app.mqtt_manager.start(payload)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    return jsonify({"ok": True, "message": "Client MQTT démarré"})
+
+@api.get("/api/mqtt/status")
+def api_mqtt_status():
+    m = current_app.mqtt_manager
+    cfg = m.cfg or {}
+    broker = None
+    if cfg:
+        port = cfg["portTLS"] if cfg.get("useTLS", True) else cfg.get("portPlain", 1883)
+        broker = f"{cfg.get('ip')}:{port}"
+
+    return jsonify({
+        "connected": m.connected,
+        "last_error": m.last_error,
+        "broker": broker,
+        "useTLS": cfg.get("useTLS", True) if cfg else None,
+        "serial": cfg.get("serial") if cfg else None,
+    })
+
+# ------------------- Filaments API (inchangé) -------------------
+
 # Get all filaments
 @api.route('/api/filaments', methods=['GET'])
 def get_filaments():
-    filaments = Filament.query.all()
+    # Clé de tri poids: poids réel si dispo, sinon poids bobine; cast au cas où la colonne est TEXT
+    weight_key = func.coalesce(
+        cast(Filament.remaining_grams, Float),
+        cast(Filament.spool_weight, Float),
+        1e12  # met les inconnus tout à la fin
+    )
+
+    # Tri SQL: matériau → sous-type → couleur → poids (desc)
+    filaments = (
+        db.session.query(Filament)
+        .order_by(
+            func.lower(func.coalesce(Filament.filament_type, 'zzzz')),
+            func.lower(func.coalesce(Filament.filament_detailed_type, 'zzzz')),
+            func.lower(func.coalesce(Filament.color_code, 'zzzz')),
+            weight_key.desc()
+        )
+        .all()
+    )
+
     data = [
         {
             "id": f.id,
@@ -35,12 +100,19 @@ def get_filaments():
             "nozzle_diameter": f.nozzle_diameter,
             "xcam_info": f.xcam_info,
             "manufacture_datetime_utc": f.manufacture_datetime_utc.strftime("%Y-%m-%d %H:%M:%S") if f.manufacture_datetime_utc else None,
-            "short_date": f.short_date
-        } for f in filaments
+            "short_date": f.short_date,
+            "remaining_percent": f.remaining_percent,
+            "remaining_weight": f.remaining_grams,
+            "remaining_length": f.remaining_length_mm,
+            "last_sync_source": f.last_sync_source,
+            "last_sync_at": f.last_sync_at.strftime("%Y-%m-%d %H:%M:%S") if f.last_sync_at else None,
+        }
+        for f in filaments
     ]
+
     return jsonify(data)
 
-#Get one specific filaments
+#Get one specific filament
 @api.route('/api/filaments/<int:id>', methods=['GET'])
 def get_filament(id):
     filament = Filament.query.get(id)
@@ -52,11 +124,9 @@ def get_filament(id):
 @api.route("/api/filaments", methods=['POST'])
 def create_filament():
     data = request.get_json() or {}
-    # Validez au moins la présence de l’UID
     if not data.get("uid"):
         return jsonify({"error": "Le champ uid est requis"}), 400
 
-    # Instanciez votre modèle
     filament = Filament(
         uid=data["uid"],
         tag_manufacturer=data.get("tag_manufacturer"),
@@ -75,10 +145,8 @@ def create_filament():
         dry_bed_temp=data.get("dry_bed_temp"),
         nozzle_diameter=data.get("nozzle_diameter"),
         xcam_info=data.get("xcam_info"),
-        # manufacture_datetime_utc attend un datetime Python : parsez-le si besoin
     )
 
-    # Enregistrez en base
     db.session.add(filament)
     try:
         db.session.commit()
@@ -86,28 +154,19 @@ def create_filament():
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
-    # Renvoie l’objet créé (assurez-vous d’avoir une méthode to_dict())
     return jsonify(filament.to_dict()), 201
 
 #Delete a specific filament
 @api.route('/api/filaments/<int:filament_id>', methods=['DELETE'])
 def delete_filament(filament_id):
-    """
-    Supprime un filament par son ID.
-    Retourne 204 No Content si supprimé, 404 si non trouvé, 500 si erreur.
-    """
-    # Recherche du filament
     filament = Filament.query.get(filament_id)
     if filament is None:
         return jsonify({"error": "Filament non trouvé."}), 404
 
     try:
-        # Suppression et commit
         db.session.delete(filament)
         db.session.commit()
-        # Pas de contenu à renvoyer
         return ('', 204)
-
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
@@ -120,8 +179,6 @@ def update_filament(id):
         return jsonify({'error': 'Not found'}), 404
 
     data = request.get_json() or {}
-
-    # Mets à jour les champs que tu veux autoriser à éditer
     for field in [
         "uid", "tray_uid", "tag_manufacturer",
         "filament_type", "filament_detailed_type",
@@ -153,7 +210,7 @@ def import_filaments():
             continue
 
         try:
-            raw = file.read().decode('utf-8')  # ✅ Fix lecture
+            raw = file.read().decode('utf-8')
             content = json.loads(raw)
 
             uid = content.get('tag_uid')
@@ -200,6 +257,7 @@ def import_filaments():
         "errors": errors
     }), 200
 
+# ------------------- 3MF Analysis API ---------------------------
 
 @api.route('/api/3mf/analyze', methods=['POST'])
 def analyze_3mf():
@@ -246,3 +304,23 @@ def analyze_3mf():
         'materials': materials,
         'pieces_count': pieces_count,
     })
+
+#-------------------- AMS Sync API ---------------------------
+
+@api.route("/ams/sync", methods=["POST"])
+def ams_sync():
+    data = request.get_json(silent=True) or {}
+    report = data.get("print", {})
+    ams = report.get("ams", {}).get("ams", [])
+
+    updated = 0
+    for sensor in ams:
+        sid = sensor.get("id")
+        for tray in sensor.get("tray", []):
+            if not tray.get("tag_uid"):
+                continue
+            payload = tray_to_filament_dict(sid, tray)
+            upsert_filament(db.session, payload)
+            updated += 1
+
+    return jsonify({"status": "ok", "updated": updated}), 200
