@@ -24,7 +24,7 @@ def create_tables():
         print_temp_min INTEGER,
         print_temp_max INTEGER,
         dry_temp INTEGER,
-        dry_time_minutes INTEGER,
+        dry_time_hour INTEGER,
         dry_bed_temp INTEGER,
         nozzle_diameter INTEGER,
         xcam_info TEXT,
@@ -60,7 +60,7 @@ def insert_dummy_data():
     INSERT INTO filaments (
         uid, tray_uid, tag_manufacturer, filament_type, filament_detailed_type,
         color_code, extra_color_info, filament_diameter, spool_width, spool_weight,
-        filament_length, print_temp_min, print_temp_max, dry_temp, dry_time_minutes,
+        filament_length, print_temp_min, print_temp_max, dry_temp, dry_time_hour,
         dry_bed_temp, nozzle_diameter, xcam_info, manufacture_datetime_utc, short_date
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, data)

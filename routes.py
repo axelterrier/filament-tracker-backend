@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify, current_app
 from models import db, Filament
 from datetime import datetime
 from sqlalchemy import func, cast, Float
-from helper import tray_to_filament_dict, upsert_filament, validate_cfg, save_config
+from helper import tray_to_filament_dict, upsert_filament, validate_cfg, save_config, _parse_dt, _NUMERIC_FIELDS, _DATETIME_FIELDS, _ALLOWED
 import tempfile
 import os
 import zipfile
@@ -95,7 +95,7 @@ def get_filaments():
             "print_temp_min": f.print_temp_min,
             "print_temp_max": f.print_temp_max,
             "dry_temp": f.dry_temp,
-            "dry_time_minutes": f.dry_time_minutes,
+            "dry_time_hour": f.dry_time_hour,
             "dry_bed_temp": f.dry_bed_temp,
             "nozzle_diameter": f.nozzle_diameter,
             "xcam_info": f.xcam_info,
@@ -141,7 +141,7 @@ def create_filament():
         print_temp_min=data.get("print_temp_min"),
         print_temp_max=data.get("print_temp_max"),
         dry_temp=data.get("dry_temp"),
-        dry_time_minutes=data.get("dry_time_minutes"),
+        dry_time_hour=data.get("dry_time_hour"),
         dry_bed_temp=data.get("dry_bed_temp"),
         nozzle_diameter=data.get("nozzle_diameter"),
         xcam_info=data.get("xcam_info"),
@@ -174,21 +174,42 @@ def delete_filament(filament_id):
 #Update a specific filament
 @api.route('/api/filaments/<int:id>', methods=['PUT', 'PATCH'])
 def update_filament(id):
+    # Flask ajoute déjà OPTIONS automatiquement, mais on l’annonce pour clarté
     filament = Filament.query.get(id)
     if not filament:
         return jsonify({'error': 'Not found'}), 404
 
-    data = request.get_json() or {}
-    for field in [
-        "uid", "tray_uid", "tag_manufacturer",
-        "filament_type", "filament_detailed_type",
-        "color_code", "extra_color_info", "filament_diameter",
-        "spool_width", "spool_weight", "filament_length",
-        "print_temp_min", "print_temp_max", "dry_temp", "dry_time_minutes", "dry_bed_temp",
-        "nozzle_diameter", "xcam_info", "manufacture_datetime_utc", "short_date"
-    ]:
-        if field in data:
-            setattr(filament, field, data[field])
+    data = request.get_json(silent=True) or {}
+
+    # Appliquer champs connus avec conversion
+    for field, value in data.items():
+        if field not in _ALLOWED:
+            continue
+        if field in _NUMERIC_FIELDS:
+            try:
+                value = _NUMERIC_FIELDS[field](value) if value is not None else None
+            except (TypeError, ValueError):
+                return jsonify({'error': f'Invalid number for {field}'}), 400
+        elif field in _DATETIME_FIELDS:
+            value = _parse_dt(value)
+        else:
+            # stringy
+            value = None if value is None else str(value)
+        setattr(filament, field, value)
+
+    # Petites règles de cohérence AMS
+    g = filament.remaining_grams
+    sw = filament.spool_weight or 0
+    pct = filament.remaining_percent
+
+    if g is not None and sw > 0:
+        filament.remaining_percent = max(0, min(100, round(g / sw * 100)))
+    elif pct is not None and sw > 0 and g is None:
+        filament.remaining_grams = max(0, round(sw * (pct / 100)))
+
+    # Dates nulles si parsing KO (optionnel)
+    # if 'manufacture_datetime_utc' in data and filament.manufacture_datetime_utc is None: ...
+    # if 'last_sync_at' in data and filament.last_sync_at is None: ...
 
     db.session.commit()
     return jsonify(filament.to_dict())
@@ -237,7 +258,7 @@ def import_filaments():
                 print_temp_min=content.get('temp_hotend_min'),
                 print_temp_max=content.get('temp_hotend_max'),
                 dry_temp=content.get('temp_drying'),
-                dry_time_minutes=content.get('drying_time_h', 0) * 60,
+                dry_time_hour=content.get('drying_time_h', 0) * 60,
                 manufacture_datetime_utc=datetime.strptime(content.get('produced_at'), "%Y-%m-%d-%H-%M"),
                 short_date=content.get('produced_at').replace('-', '')[:8],
             )

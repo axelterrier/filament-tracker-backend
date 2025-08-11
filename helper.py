@@ -67,7 +67,7 @@ def tray_to_filament_dict(sensor_id: str, tray: dict) -> dict:
         "print_temp_min": to_int_or_none(tray.get("nozzle_temp_min")),
         "print_temp_max": to_int_or_none(tray.get("nozzle_temp_max")),
         "dry_temp": to_int_or_none(tray.get("tray_temp")),
-        "dry_time_minutes": to_int_or_none(tray.get("tray_time")),
+        "dry_time_hour": to_int_or_none(tray.get("tray_time")),
         "dry_bed_temp": to_int_or_none(tray.get("bed_temp")),
         "xcam_info": tray.get("xcam_info"),
 
@@ -128,3 +128,36 @@ def validate_cfg(payload: Dict[str, Any]) -> Optional[str]:
     # Serial utile (sinon client_id par défaut)
     payload.setdefault("serial", "")
     return None
+
+
+def _parse_dt(v):
+    if not v: return None
+    if isinstance(v, datetime): return v
+    # accepte "YYYY-MM-DD HH:mm:ss" ou ISO
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+        try: return datetime.strptime(str(v), fmt)
+        except ValueError: pass
+    # tente parse ISO “libre”
+    try: return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except Exception: return None
+
+_NUMERIC_FIELDS = {
+    "filament_diameter": float, "spool_width": float,
+    "spool_weight": int, "filament_length": int,
+    "print_temp_min": int, "print_temp_max": int,
+    "dry_temp": int, "dry_time_hour": int, "dry_bed_temp": int,
+    "nozzle_diameter": float,   # si tu veux en int, remets int
+    "remaining_percent": int, "remaining_grams": int,
+    "remaining_length_mm": int,
+}
+
+_DATETIME_FIELDS = {"manufacture_datetime_utc", "last_sync_at"}
+
+_STR_FIELDS = {
+    "uid", "tray_uid", "tag_manufacturer",
+    "filament_type", "filament_detailed_type",
+    "color_code", "extra_color_info",
+    "xcam_info", "short_date", "last_sync_source"
+}
+
+_ALLOWED = set(_NUMERIC_FIELDS) | _DATETIME_FIELDS | _STR_FIELDS
