@@ -22,6 +22,12 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 # — CORS : autoriser Ionic + Vite —
 CORS(app, origins=["http://localhost:8100", "http://localhost:5173"])
 
+# — Où lire le mapping couleur —
+data_dir = os.path.join(base_dir, "data")
+os.makedirs(data_dir, exist_ok=True)
+default_color_json = os.path.join(data_dir, "filaments_min.json")
+os.environ.setdefault("FILAMENT_COLOR_JSON", default_color_json)
+
 # — SQLAlchemy + Migrations —
 db.init_app(app)
 migrate = Migrate(app, db)

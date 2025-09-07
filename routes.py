@@ -66,12 +66,13 @@ def get_filaments():
         1e12  # met les inconnus tout à la fin
     )
 
-    # Tri SQL: matériau → sous-type → couleur → poids (desc)
+    # Tri SQL: matériau → sous-type → nom couleur → hex → poids (desc)
     filaments = (
         db.session.query(Filament)
         .order_by(
             func.lower(func.coalesce(Filament.filament_type, 'zzzz')),
             func.lower(func.coalesce(Filament.filament_detailed_type, 'zzzz')),
+            func.lower(func.coalesce(Filament.color_name, 'zzzz')),
             func.lower(func.coalesce(Filament.color_code, 'zzzz')),
             weight_key.desc()
         )
@@ -87,6 +88,7 @@ def get_filaments():
             "filament_type": f.filament_type,
             "filament_detailed_type": f.filament_detailed_type,
             "color_code": f.color_code,
+            "color_name": f.color_name,  # ← ajouté
             "extra_color_info": f.extra_color_info,
             "filament_diameter": f.filament_diameter,
             "spool_width": f.spool_width,
@@ -109,6 +111,7 @@ def get_filaments():
         }
         for f in filaments
     ]
+
 
     return jsonify(data)
 

@@ -16,6 +16,7 @@ def create_tables():
         filament_type TEXT,
         filament_detailed_type TEXT,
         color_code TEXT,
+        color_name TEXT,                 
         extra_color_info TEXT,
         filament_diameter REAL,
         spool_width REAL,
@@ -30,7 +31,14 @@ def create_tables():
         xcam_info TEXT,
         manufacture_datetime_utc DATETIME,
         short_date TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+        -- champs AMS
+        remaining_percent INTEGER,
+        remaining_grams INTEGER,
+        remaining_length_mm INTEGER,
+        last_sync_source TEXT,
+        last_sync_at DATETIME
     );
     """)
 
@@ -44,15 +52,17 @@ def insert_dummy_data():
     data = [
         (
             "04A7B3F2C8", "09F1A3BC67", "STMicroelectronics",
-            "PLA", "PLA Basic", "#FFAA33", "Orange vif", 1.75,
+            "PLA", "PLA BASIC", "#FFAA33", "Orange vif", 1.75,
             65.0, 1000, 330, 190, 220, 50, 240, 60, 0.4, "XCamV2",
-            datetime(2025, 6, 15, 10, 30), "20250615"
+            datetime(2025, 6, 15, 10, 30), "20250615",
+            None, None, None, None, None
         ),
         (
             "04B9D6E4F1", "09C2D7AB99", "NXP",
             "PETG", "PETG CF", "#222222", "Noir carbone", 1.75,
             70.0, 800, 260, 230, 250, 65, 180, 70, 0.6, "XCamV1",
-            datetime(2025, 5, 20, 14, 10), "20250520"
+            datetime(2025, 5, 20, 14, 10), "20250520",
+            None, None, None, None, None
         )
     ]
 
@@ -61,8 +71,9 @@ def insert_dummy_data():
         uid, tray_uid, tag_manufacturer, filament_type, filament_detailed_type,
         color_code, extra_color_info, filament_diameter, spool_width, spool_weight,
         filament_length, print_temp_min, print_temp_max, dry_temp, dry_time_hour,
-        dry_bed_temp, nozzle_diameter, xcam_info, manufacture_datetime_utc, short_date
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        dry_bed_temp, nozzle_diameter, xcam_info, manufacture_datetime_utc, short_date,
+        remaining_percent, remaining_grams, remaining_length_mm, last_sync_source, last_sync_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, data)
 
     conn.commit()

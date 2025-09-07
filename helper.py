@@ -83,6 +83,7 @@ def upsert_filament(session, payload: dict):
     """
     Identifie par payload['uid'] (tag_uid). Fallback sur payload['tray_uid'].
     Met à jour uniquement les champs non-nuls.
+    Le champ color_name sera rempli automatiquement par les events du modèle.
     """
     key_uid = payload.get("uid")
     alt_key = payload.get("tray_uid")
@@ -121,11 +122,9 @@ def validate_cfg(payload: Dict[str, Any]) -> Optional[str]:
     for k in required:
         if not payload.get(k):
             return f"Champ manquant: {k}"
-    # Valeurs par défaut
     payload.setdefault("useTLS", True)
     payload.setdefault("portTLS", 8883)
     payload.setdefault("portPlain", 1883)
-    # Serial utile (sinon client_id par défaut)
     payload.setdefault("serial", "")
     return None
 
@@ -133,11 +132,9 @@ def validate_cfg(payload: Dict[str, Any]) -> Optional[str]:
 def _parse_dt(v):
     if not v: return None
     if isinstance(v, datetime): return v
-    # accepte "YYYY-MM-DD HH:mm:ss" ou ISO
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
         try: return datetime.strptime(str(v), fmt)
         except ValueError: pass
-    # tente parse ISO “libre”
     try: return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
     except Exception: return None
 
@@ -146,7 +143,7 @@ _NUMERIC_FIELDS = {
     "spool_weight": int, "filament_length": int,
     "print_temp_min": int, "print_temp_max": int,
     "dry_temp": int, "dry_time_hour": int, "dry_bed_temp": int,
-    "nozzle_diameter": float,   # si tu veux en int, remets int
+    "nozzle_diameter": float,
     "remaining_percent": int, "remaining_grams": int,
     "remaining_length_mm": int,
 }
