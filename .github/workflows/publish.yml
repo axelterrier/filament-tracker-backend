@@ -1,4 +1,4 @@
 on:
   push:
-    branches: [ "master", "main" ]
+    branches: [ "master" ]
   workflow_dispatch:
