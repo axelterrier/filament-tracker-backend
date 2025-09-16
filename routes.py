@@ -331,7 +331,7 @@ def analyze_3mf():
 
 #-------------------- AMS Sync API ---------------------------
 
-@api.route("/ams/sync", methods=["POST"])
+@api.route("/api/ams/sync", methods=["POST"])
 def ams_sync():
     data = request.get_json(silent=True) or {}
     report = data.get("print", {})
