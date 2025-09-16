@@ -3,9 +3,15 @@ import ssl
 import json
 import time
 import threading
+import os
 from typing import Optional, Dict, Any
 from paho.mqtt import client as mqtt
 import requests
+
+# Permet de configurer l’URL de sync via une variable d’environnement
+API_PREFIX = os.getenv("API_PREFIX", "/api")
+SYNC_URL = os.getenv("SYNC_URL", f"http://localhost:5000{API_PREFIX}/ams/sync")
+
 
 class MqttManager:
     def __init__(self):
@@ -52,9 +58,9 @@ class MqttManager:
         if not ams_list:
             return
 
-        # → Optionnel : forward au backend interne
+        # → Forward au backend interne (endpoint Flask /api/ams/sync)
         try:
-            requests.post("http://localhost:5000/ams/sync", json=data, timeout=5)
+            requests.post(SYNC_URL, json=data, timeout=5)
         except Exception as e:
             self.last_error = f"/ams/sync: {e}"
 
