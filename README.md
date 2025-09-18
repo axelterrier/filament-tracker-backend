@@ -44,3 +44,11 @@ docker compose pull
 docker compose up -d
 docker image prune -f
 ```
+
+## Architecture des dossiers
+
+filament-tracker/
+├── backend-data/
+│   └── app.db
+├── docker-compose.yml
+└── nginx.conf
